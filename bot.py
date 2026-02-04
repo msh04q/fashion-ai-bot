@@ -16,30 +16,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
-# Импортируем наш AI сервис
-from ai_service import ai_service
-# В начале файла, после импортов, добавьте:
-async def show_provider_info(message: types.Message):
-    """Показать информацию о доступных провайдерах"""
-    providers_info = {
-        "openai": "OpenAI GPT — мощный, но платный",
-        "deepseek": "DeepSeek — хорошая альтернатива OpenAI", 
-        "gemini": "Google Gemini — бесплатные запросы",
-        "yandex_gpt": "Yandex GPT — бесплатные запросы для РФ",
-        "local": "Локальные шаблоны — всегда доступны"
-    }
-    
-    available = [p.value for p in ai_service.available_providers if p.value != "fallback"]
-    
-    info_text = "🤖 <b>Доступные AI провайдеры:</b>\n\n"
-    
-    for provider in available:
-        status = "✅ Доступен" if provider in ["local", "fallback"] else "⚠️ Проверка"
-        info_text += f"• <b>{provider.upper()}</b> — {providers_info.get(provider, 'Неизвестный')} ({status})\n"
-    
-    info_text += "\n💡 <i>Бот автоматически выбирает рабочий провайдер</i>"
-    
-    await message.answer(info_text, parse_mode="HTML")
+# Импортируем наши сервисы
+from ai_service import AIService
+from local_data_service import LocalDataService
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -59,6 +38,10 @@ if not TOKEN:
     exit(1)
 
 logger.info("✅ Токен загружен")
+
+# Инициализация AI сервиса с локальными данными
+local_service = LocalDataService()
+ai_service = AIService(local_data_service=local_service)
 
 # Инициализация бота
 bot = Bot(token=TOKEN)
@@ -83,7 +66,7 @@ def get_main_keyboard():
             [KeyboardButton(text="🤖 AI Образ"), KeyboardButton(text="🎨 AI Цвета")],
             [KeyboardButton(text="💡 AI Тренды"), KeyboardButton(text="🧳 AI Гардероб")],
             [KeyboardButton(text="🛍️ Магазины"), KeyboardButton(text="ℹ️ Помощь")],
-            [KeyboardButton(text="🔧 AI Статус")]  # Новая кнопка
+            [KeyboardButton(text="🔧 AI Статус")]
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите действие..."
@@ -162,7 +145,7 @@ def get_budget_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="💰 Бюджет", callback_data="budget_low"),
+                InlineKeyboardButton(text="💰 Бюджетный", callback_data="budget_low"),
                 InlineKeyboardButton(text="💵 Средний", callback_data="budget_medium")
             ],
             [
@@ -172,9 +155,36 @@ def get_budget_keyboard():
         ]
     )
 
-# ========== ОБРАБОТЧИКИ КОМАНД ==========
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+async def show_provider_info(message: types.Message):
+    """Показать информацию о доступных провайдерах"""
+    providers_info = {
+        "openai": "OpenAI GPT — мощный, но платный",
+        "deepseek": "DeepSeek — хорошая альтернатива OpenAI", 
+        "gemini": "Google Gemini — бесплатные запросы",
+        "yandex_gpt": "Yandex GPT — бесплатные запросы для РФ",
+        "local": "Локальные шаблоны — всегда доступны"
+    }
+    
+    available = [p.value for p in ai_service.available_providers if p.value not in ["fallback", "local"]]
+    
+    info_text = "🤖 <b>Доступные AI провайдеры:</b>\n\n"
+    
+    # AI провайдеры
+    if available:
+        for provider in available:
+            info_text += f"• <b>{provider.upper()}</b> — {providers_info.get(provider, 'Неизвестный')}\n"
+    else:
+        info_text += "• <i>Нет доступных AI провайдеров</i>\n"
+    
+    # Локальные шаблоны
+    info_text += f"• <b>LOCAL</b> — {providers_info.get('local', 'Локальные шаблоны')} (✅ Всегда доступны)\n"
+    
+    info_text += "\n💡 <i>Бот автоматически выбирает рабочий провайдер, если нет — использует локальные шаблоны</i>"
+    
+    await message.answer(info_text, parse_mode="HTML")
 
-# Добавьте обработчик команды /providers
+# ========== ОБРАБОТЧИКИ КОМАНД ==========
 @dp.message(Command("providers"))
 async def cmd_providers(message: types.Message):
     """Команда для показа информации о провайдерах"""
@@ -184,8 +194,12 @@ async def cmd_providers(message: types.Message):
 async def cmd_start(message: types.Message):
     """Обработчик команды /start"""
     # Показываем доступные AI провайдеры
-    providers = [p.value for p in ai_service.available_providers]
-    ai_status = "✅ AI доступен (" + ", ".join(providers) + ")" if providers else "⚠️ AI недоступен"
+    providers = [p.value for p in ai_service.available_providers if p.value not in ["fallback", "local"]]
+    
+    if providers:
+        ai_status = f"✅ AI доступен ({', '.join(providers)})"
+    else:
+        ai_status = "⚠️ AI провайдеры не настроены, используются локальные шаблоны"
     
     welcome_text = f"""
 ✨ <b>Добро пожаловать в Fashion AI X, {message.from_user.first_name}!</b> ✨
@@ -214,8 +228,7 @@ async def cmd_help(message: types.Message):
 <b>Основные команды:</b>
 /start — Начать работу
 /help — Эта справка
-/style — Подобрать стиль
-/trends — Актуальные тренды
+/providers — Показать доступные AI провайдеры
 
 <b>AI функции:</b>
 • 🤖 AI Образ — создание образов с AI
@@ -226,12 +239,12 @@ async def cmd_help(message: types.Message):
 <b>Стандартные функции:</b>
 • 🛍️ Магазины — где купить одежду
 • ℹ️ Помощь — эта справка
+• 🔧 AI Статус — информация о провайдерах
 
 💡 <b>Совет:</b> Используйте кнопки меню для удобной навигации!
     """
     await message.answer(help_text, parse_mode="HTML")
 
-# И обработчик для новой кнопки:
 @dp.message(F.text == "🔧 AI Статус")
 async def ai_status(message: types.Message):
     """Показать статус AI провайдеров"""
@@ -241,20 +254,9 @@ async def ai_status(message: types.Message):
 @dp.message(F.text == "🤖 AI Образ")
 async def start_ai_outfit(message: types.Message, state: FSMContext):
     """Начало создания AI образа"""
-    # Проверяем доступность AI
-    if not ai_service.available_providers:
-        await message.answer(
-            "⚠️ <b>AI функции временно недоступны</b>\n\n"
-            "Добавьте API ключи в файл .env:\n"
-            "• OPENAI_API_KEY для OpenAI\n"
-            "• DEEPSEEK_API_KEY для DeepSeek\n\n"
-            "Или используйте стандартные функции бота.",
-            parse_mode="HTML"
-        )
-        return
-    
     await message.answer(
         "🤖 <b>Создание AI образа</b>\n\n"
+        "Я создам для вас стильный образ!\n\n"
         "👇 <b>Выберите стиль:</b>",
         parse_mode="HTML",
         reply_markup=get_style_keyboard()
@@ -394,7 +396,7 @@ async def process_budget_and_generate(callback: CallbackQuery, state: FSMContext
         )
         
         # Формируем ответ
-        ai_indicator = "✨ <b>СГЕНЕРИРОВАНО AI</b> ✨\n\n" if outfit.get("has_ai", False) else ""
+        ai_indicator = "✨ <b>СГЕНЕРИРОВАНО AI</b> ✨\n\n" if outfit.get("has_ai", False) else "📚 <b>Локальный шаблон</b>\n\n"
         
         response = f"""
 {ai_indicator}
@@ -442,13 +444,6 @@ async def process_budget_and_generate(callback: CallbackQuery, state: FSMContext
 @dp.message(F.text == "🎨 AI Цвета")
 async def start_ai_colors(message: types.Message, state: FSMContext):
     """Начало работы с цветами"""
-    if not ai_service.available_providers:
-        await message.answer(
-            "⚠️ <b>AI функции недоступны</b>",
-            parse_mode="HTML"
-        )
-        return
-    
     await message.answer(
         "🎨 <b>AI рекомендации по цветам</b>\n\n"
         "Напишите название цвета, и я дам детальные советы по сочетаниям!\n\n"
@@ -469,7 +464,9 @@ async def process_color_request(message: types.Message, state: FSMContext):
     
     try:
         advice = await ai_service.get_color_advice(color)
-        await message.answer(advice, parse_mode="Markdown", reply_markup=get_main_keyboard())
+        # Заменяем Markdown на HTML для правильного отображения
+        advice_html = advice.replace("*", "").replace("🎨", "<b>🎨").replace("💡", "</b>\n\n💡")
+        await message.answer(advice_html, parse_mode="HTML", reply_markup=get_main_keyboard())
         
     except Exception as e:
         logger.error(f"Ошибка получения цветовых советов: {e}")
@@ -494,13 +491,6 @@ async def process_color_request(message: types.Message, state: FSMContext):
 @dp.message(F.text == "💡 AI Тренды")
 async def get_ai_trends(message: types.Message):
     """Получение AI трендов"""
-    if not ai_service.available_providers:
-        await message.answer(
-            "⚠️ <b>AI функции недоступны</b>",
-            parse_mode="HTML"
-        )
-        return
-    
     processing_msg = await message.answer(
         "🔄 <b>AI анализирует тренды...</b>",
         parse_mode="HTML"
@@ -508,7 +498,9 @@ async def get_ai_trends(message: types.Message):
     
     try:
         trends = await ai_service.get_trends()
-        await message.answer(trends, parse_mode="Markdown", reply_markup=get_main_keyboard())
+        # Заменяем Markdown на HTML
+        trends_html = trends.replace("*", "").replace("🔥", "<b>🔥").replace("✨", "</b>\n\n✨")
+        await message.answer(trends_html, parse_mode="HTML", reply_markup=get_main_keyboard())
         
     except Exception as e:
         logger.error(f"Ошибка получения трендов: {e}")
@@ -533,13 +525,6 @@ async def get_ai_trends(message: types.Message):
 @dp.message(F.text == "🧳 AI Гардероб")
 async def start_wardrobe_analysis(message: types.Message, state: FSMContext):
     """Начало анализа гардероба"""
-    if not ai_service.available_providers:
-        await message.answer(
-            "⚠️ <b>AI функции недоступны</b>",
-            parse_mode="HTML"
-        )
-        return
-    
     await message.answer(
         "🧳 <b>AI анализ гардероба</b>\n\n"
         "Опишите основные вещи вашего гардероба:\n\n"
@@ -561,7 +546,7 @@ async def process_wardrobe(message: types.Message, state: FSMContext):
     try:
         analysis = await ai_service.analyze_wardrobe(description)
         
-        ai_indicator = "✨ <b>АНАЛИЗ AI</b> ✨\n\n" if analysis.get("has_ai", False) else ""
+        ai_indicator = "✨ <b>АНАЛИЗ AI</b> ✨\n\n" if analysis.get("has_ai", False) else "📚 <b>Локальные рекомендации</b>\n\n"
         
         response = f"""
 {ai_indicator}
@@ -569,10 +554,8 @@ async def process_wardrobe(message: types.Message, state: FSMContext):
 
 {analysis.get('analysis', 'Не удалось проанализировать.')}
 
-<b>💎 Рекомендации:</b>
-1. Докупите базовые вещи
-2. Экспериментируйте с сочетаниями
-3. Добавьте аксессуары
+<b>💎 Главный совет:</b>
+Создавайте капсульный гардероб из сочетаемых вещей!
         """
         
         await message.answer(response, parse_mode="HTML", reply_markup=get_main_keyboard())
@@ -637,11 +620,12 @@ async def main():
     logger.info("🚀 Запуск Fashion AI X бота...")
     
     # Проверяем AI провайдеры
-    providers = [p.value for p in ai_service.available_providers]
+    providers = [p.value for p in ai_service.available_providers if p.value not in ["fallback", "local"]]
+    
     if providers:
         logger.info(f"✅ Доступные AI провайдеры: {', '.join(providers)}")
     else:
-        logger.warning("⚠️ Нет доступных AI провайдеров")
+        logger.info("ℹ️ AI провайдеры не настроены, будут использоваться локальные шаблоны")
     
     try:
         bot_info = await bot.get_me()
