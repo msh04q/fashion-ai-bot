@@ -361,30 +361,30 @@ async def process_gender(callback: CallbackQuery, state: FSMContext):
 async def process_budget_and_generate(callback: CallbackQuery, state: FSMContext):
     """Обработка бюджета и генерация образа"""
     await callback.answer()
-    
+
     budget_map = {
         "budget_low": "Бюджетный",
-        "budget_medium": "Средний",
+        "budget_medium": "Средний", 
         "budget_high": "Премиум",
         "budget_any": "Не важно"
     }
-    
+
     budget = budget_map.get(callback.data, "Средний")
-    
+
     # Получаем все данные
     data = await state.get_data()
     style = data.get("style", "Кэжуал")
     season = data.get("season", "Лето")
     occasion = data.get("occasion", "Прогулка")
     gender = data.get("gender", "Унисекс")
-    
+
     # Показываем сообщение о генерации
     processing_msg = await callback.message.answer(
         "🔄 <b>AI генерирует ваш образ...</b>\n\n"
         "<i>Это займет несколько секунд</i>",
         parse_mode="HTML"
     )
-    
+
     try:
         # Генерируем образ через AI сервис
         outfit = await ai_service.generate_outfit(
@@ -394,10 +394,32 @@ async def process_budget_and_generate(callback: CallbackQuery, state: FSMContext
             gender=gender,
             budget=budget
         )
+
+        # ✅ ДОБАВЬ ОТЛАДКУ
+        print(f"🔍 [BOT DEBUG] ===========================")
+        print(f"🔍 [BOT DEBUG] Получен образ от AI сервиса")
+        print(f"🔍 [BOT DEBUG] Название: {outfit.get('name')}")
+        print(f"🔍 [BOT DEBUG] has_ai значение: {outfit.get('has_ai')}")
+        print(f"🔍 [BOT DEBUG] Тип has_ai: {type(outfit.get('has_ai'))}")
+        print(f"🔍 [BOT DEBUG] Все ключи: {list(outfit.keys())}")
+        print(f"🔍 [BOT DEBUG] ===========================")
+
+        # ✅ ИСПРАВЛЕННАЯ ПРОВЕРКА
+        has_ai_value = outfit.get("has_ai")
         
+        # Проверяем разные варианты
+        if has_ai_value is True:
+            ai_indicator = "✨ <b>СГЕНЕРИРОВАНО AI</b> ✨\n\n"
+            print(f"🔍 [BOT DEBUG] Показываем AI индикатор (has_ai=True)")
+        elif has_ai_value is False:
+            ai_indicator = "📚 <b>Локальный шаблон</b>\n\n"
+            print(f"🔍 [BOT DEBUG] Показываем локальный шаблон (has_ai=False)")
+        else:
+            # Если ключа нет или значение None, считаем что это AI
+            ai_indicator = "✨ <b>СГЕНЕРИРОВАНО AI</b> ✨\n\n"
+            print(f"🔍 [BOT DEBUG] Показываем AI (has_ai={has_ai_value})")
+
         # Формируем ответ
-        ai_indicator = "✨ <b>СГЕНЕРИРОВАНО AI</b> ✨\n\n" if outfit.get("has_ai", False) else "📚 <b>Локальный шаблон</b>\n\n"
-        
         response = f"""
 {ai_indicator}
 🎉 <b>Ваш образ готов!</b>
@@ -421,9 +443,9 @@ async def process_budget_and_generate(callback: CallbackQuery, state: FSMContext
 <b>💡 Советы:</b>
 {chr(10).join([f'• {tip}' for tip in outfit.get('tips', ['Экспериментируйте!'])[:3]])}
         """
-        
+
         await callback.message.answer(response, parse_mode="HTML", reply_markup=get_main_keyboard())
-        
+
     except Exception as e:
         logger.error(f"Ошибка генерации образа: {e}")
         await callback.message.answer(
@@ -432,14 +454,13 @@ async def process_budget_and_generate(callback: CallbackQuery, state: FSMContext
             parse_mode="HTML",
             reply_markup=get_main_keyboard()
         )
-    
+
     finally:
         await state.clear()
         try:
             await processing_msg.delete()
         except:
             pass
-
 # ========== AI ЦВЕТА ==========
 @dp.message(F.text == "🎨 AI Цвета")
 async def start_ai_colors(message: types.Message, state: FSMContext):
